@@ -1,0 +1,329 @@
+{
+    "id": "loan_origination_graph",
+    "name": "Loan Origination BRE v3",
+    "chains": [
+      {
+        "id": "eligibility_chain",
+        "name": "Eligibility Chain",
+        "rulesets": [
+          {
+            "id": "global_eligibility_ruleset",
+            "name": "Global Eligibility Rules",
+            "rules": [
+              {
+                "id": "age_check",
+                "name": "Age Check",
+                "conditions": [
+                  {
+                    "field": "applicant.age",
+                    "operator": ">",
+                    "value": 21
+                  }
+                ],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "nationality_check"
+                    ]
+                  },
+                  "on_false": {
+                    "decision": "FAIL",
+                    "reason": "Age <= 21"
+                  }
+                }
+              },
+              {
+                "id": "nationality_check",
+                "name": "Nationality Check",
+                "conditions": [
+                  {
+                    "field": "applicant.nationality",
+                    "operator": "==",
+                    "value": "INDIAN"
+                  }
+                ],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "employment_type_check"
+                    ]
+                  },
+                  "on_false": {
+                    "decision": "FAIL",
+                    "reason": "Not Indian"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "employment_type_ruleset",
+            "name": "Employment Type Branching",
+            "rules": [
+              {
+                "id": "employment_type_check",
+                "name": "Employment Type Routing",
+                "conditions": [],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "branches": [
+                      {
+                        "name": "Salaried Branch",
+                        "conditions": [
+                          {
+                            "field": "applicant.employment_type",
+                            "operator": "==",
+                            "value": "SALARIED"
+                          }
+                        ],
+                        "next_ruleset": "salaried_ruleset",
+                        "next_rules": [
+                          "salaried_income_check"
+                        ]
+                      },
+                      {
+                        "name": "Self-employed Branch",
+                        "conditions": [
+                          {
+                            "field": "applicant.employment_type",
+                            "operator": "==",
+                            "value": "SELF_EMPLOYED"
+                          }
+                        ],
+                        "next_ruleset": "self_employed_ruleset",
+                        "next_rules": [
+                          "business_vintage_check"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "salaried_ruleset",
+            "name": "Salaried Ruleset",
+            "rules": [
+              {
+                "id": "salaried_income_check",
+                "name": "Income Check",
+                "conditions": [
+                  {
+                    "field": "applicant.monthly_income",
+                    "operator": ">=",
+                    "value": 30000
+                  }
+                ],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "salaried_tenure_check"
+                    ]
+                  },
+                  "on_false": {
+                    "decision": "FAIL",
+                    "reason": "Income < 30K"
+                  }
+                }
+              },
+              {
+                "id": "salaried_tenure_check",
+                "name": "Employment Tenure Check",
+                "conditions": [
+                  {
+                    "field": "applicant.employment_tenure_months",
+                    "operator": ">=",
+                    "value": 6
+                  }
+                ],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "credit_score_check"
+                    ]
+                  },
+                  "on_false": {
+                    "decision": "FAIL",
+                    "reason": "Tenure < 6 months"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "self_employed_ruleset",
+            "name": "Self-employed Ruleset",
+            "rules": [
+              {
+                "id": "business_vintage_check",
+                "name": "Business Vintage Check",
+                "conditions": [
+                  {
+                    "field": "applicant.business_vintage_years",
+                    "operator": ">=",
+                    "value": 2
+                  }
+                ],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "self_income_check"
+                    ]
+                  },
+                  "on_false": {
+                    "decision": "FAIL",
+                    "reason": "Business < 2 years"
+                  }
+                }
+              },
+              {
+                "id": "self_income_check",
+                "name": "Income Check",
+                "conditions": [
+                  {
+                    "field": "applicant.annual_income",
+                    "operator": ">=",
+                    "value": 500000
+                  }
+                ],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "credit_score_check"
+                    ]
+                  },
+                  "on_false": {
+                    "decision": "FAIL",
+                    "reason": "Income < 5L"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "risk_chain",
+        "name": "Risk Chain",
+        "rulesets": [
+          {
+            "id": "credit_risk_ruleset",
+            "name": "Credit & Fraud Rules",
+            "rules": [
+              {
+                "id": "credit_score_check",
+                "name": "Credit Score Check",
+                "conditions": [
+                  {
+                    "field": "applicant.credit_score",
+                    "operator": ">=",
+                    "value": 700
+                  }
+                ],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "fraud_check"
+                    ]
+                  },
+                  "on_false": {
+                    "decision": "FAIL",
+                    "reason": "Credit score < 700"
+                  }
+                }
+              },
+              {
+                "id": "fraud_check",
+                "name": "Fraud Check",
+                "conditions": [
+                  {
+                    "field": "applicant.fraud_flag",
+                    "operator": "==",
+                    "value": false
+                  }
+                ],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "base_rate_check"
+                    ]
+                  },
+                  "on_false": {
+                    "decision": "FAIL",
+                    "reason": "Fraud detected"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "pricing_chain",
+        "name": "Pricing Chain",
+        "rulesets": [
+          {
+            "id": "pricing_ruleset",
+            "name": "Pricing Rules",
+            "rules": [
+              {
+                "id": "base_rate_check",
+                "name": "Base Rate Check",
+                "conditions": [],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "risk_adjusted_rate"
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "risk_adjusted_rate",
+                "name": "Risk Adjusted Rate",
+                "conditions": [
+                  {
+                    "field": "applicant.credit_score",
+                    "operator": "<",
+                    "value": 750
+                  }
+                ],
+                "action": {
+                  "on_true": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "eligibility_final"
+                    ]
+                  },
+                  "on_false": {
+                    "decision": "PASS",
+                    "next_rules": [
+                      "eligibility_final"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "terminal_nodes": [
+      {
+        "id": "eligibility_final",
+        "decision": "ELIGIBLE"
+      }
+    ]
+  }
+  
