@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ action }} Credit Policy</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        #editor { height: 300px; }
+        #graph { width: 100%; height: 1200px; border: 1px solid #ccc; }
+        body {
+            overflow: hidden;
+        }
+        .editor-container {
+            height: 100vh;
+            overflow-y: auto;
+            background: #f8f9fa;
+            padding: 20px;
+            border-right: 1px solid #dee2e6;
+        }
+        .graph-container {
+            height: 100vh;
+            overflow: auto;
+            background: #fff;
+            position: relative;
+        }
+    </style>
+        <style>
+            #graph {
+                background: white;
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                display: block;
+                margin: 0 auto;
+            }
+            .node rect {
+                stroke: #fff;
+                stroke-width: 2px;
+                cursor: pointer;
+                rx: 8;
+                ry: 8;
+            }
+            .node:hover rect {
+                stroke-width: 3px;
+                filter: brightness(1.1);
+            }
+            .node text {
+                font-size: 13px;
+                pointer-events: none;
+                text-anchor: middle;
+                font-weight: 500;
+                fill: white;
+            }
+            .node .subtitle {
+                font-size: 10px;
+                fill: rgba(255,255,255,0.8);
+                font-weight: 400;
+            }
+            .link {
+                fill: none;
+                stroke: #666;
+                stroke-width: 2px;
+                marker-end: url(#arrowhead);
+            }
+            .link-label {
+                font-size: 11px;
+                fill: #444;
+                font-weight: 500;
+                pointer-events: none;
+                background: white;
+                padding: 2px 4px;
+            }
+            .link-label-bg {
+                fill: white;
+                stroke: #ddd;
+                stroke-width: 1px;
+            }
+            .legend {
+                font-size: 12px;
+            }
+            .legend rect {
+                stroke: #fff;
+                stroke-width: 1px;
+                rx: 3;
+                ry: 3;
+            }
+        </style>
+</head>
+<body class="p-5">
+<div class="container-fluid">
+    <h1 class="mb-4">{{ action }} Credit Policy</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <div class="row">
+        <!-- Left Column: Form -->
+        <div class="col-md-6 editor-container">
+            <form method="post">
+                {{ form.hidden_tag() }}
+                <div class="mb-3">
+                    {{ form.name.label(class="form-label") }}
+                    {{ form.name(class="form-control") }}
+                </div>
+                <div class="mb-3">
+                    {{ form.version.label(class="form-label") }}
+                    {{ form.version(class="form-control") }}
+                </div>
+                <div class="mb-3">
+                    {{ form.status.label(class="form-label") }}
+                    {{ form.status(class="form-select") }}
+                </div>
+                <div class="mb-3">
+                    <label for="editor" class="form-label">Policy JSON</label>
+                    <div id="editor">{{ policyJSON|safe }}</div>
+                    <textarea name="policyJSON" id="policyJSON" hidden>{{ policyJSON|safe }}</textarea>
+                </div>
+                <button type="submit" class="btn btn-success">{{ action }}</button>
+                <a href="{{ url_for('list_policies') }}" class="btn btn-secondary">Back</a>
+            </form>
+        </div>
+
+        <!-- Right Column: D3 Graph -->
+        <div class="col-md-6 graph-container">
+            <h4>Policy Graph</h4>
+            <svg id="graph"></svg>
+        </div>
+    </div>
+</div>
+
+<!-- Ace Editor -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.1/ace.js" integrity="sha512-..." crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+    var editor = ace.edit("editor");
+    editor.session.setMode("ace/mode/json");
+    editor.setTheme("ace/theme/github");
+    var textarea = document.getElementById("policyJSON");
+    editor.session.on('change', function(){
+        textarea.value = editor.getValue();
+    });
+</script>
+
+<!-- D3.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script>
+    const data = {{ policyJSON_d3|safe }};
+
+    const width = 1000;
+    const height = 1600;
+    const nodeWidth = 180;
+    const nodeHeight = 60;
+    const levelHeight = 130;
+
+    const svg = d3.select("#graph")
+        .attr("width", width)
+        .attr("height", height)
+        .attr("viewBox", [0, 0, width, height]);
+
+    // Define arrow marker
+    svg.append("defs").append("marker")
+        .attr("id", "arrowhead")
+        .attr("viewBox", "0 -5 10 10")
+        .attr("refX", 10)
+        .attr("refY", 0)
+        .attr("markerWidth", 6)
+        .attr("markerHeight", 6)
+        .attr("orient", "auto")
+        .append("path")
+        .attr("d", "M0,-5L10,0L0,5")
+        .attr("fill", "#666");
+
+    // Color scale for groups
+    const colorScale = d3.scaleOrdinal()
+        .domain(["Global Eligibility Rules", "Employment Type Branching", "Salaried Ruleset", "Self-employed Ruleset", "Credit & Fraud Rules", "Pricing Rules", "Terminal"])
+        .range(["#4CAF50", "#FF9800", "#2196F3", "#9C27B0", "#E91E63", "#00BCD4", "#F44336"]);
+
+    // Calculate hierarchical layout
+    const nodeMap = new Map(data.nodes.map(n => [n.id, {...n, level: 0}]));
+    
+    // Assign levels using BFS
+    const levels = {};
+    const queue = ["age_check"];
+    nodeMap.get("age_check").level = 0;
+    
+    while (queue.length > 0) {
+        const current = queue.shift();
+        const currentLevel = nodeMap.get(current).level;
+        
+        data.links
+            .filter(l => l.source === current)
+            .forEach(l => {
+                const target = l.target;
+                if (!nodeMap.get(target).level || nodeMap.get(target).level <= currentLevel) {
+                    nodeMap.get(target).level = currentLevel + 1;
+                }
+                if (!queue.includes(target)) {
+                    queue.push(target);
+                }
+            });
+    }
+
+    // Group nodes by level
+    nodeMap.forEach(node => {
+        if (!levels[node.level]) levels[node.level] = [];
+        levels[node.level].push(node);
+    });
+
+    // Position nodes
+    Object.keys(levels).forEach(level => {
+        const nodesInLevel = levels[level];
+        const spacing = width / (nodesInLevel.length + 1);
+        nodesInLevel.forEach((node, i) => {
+            node.x = spacing * (i + 1);
+            node.y = 100 + level * levelHeight;
+        });
+    });
+
+    // Create links with paths
+    const linkGroup = svg.append("g");
+    
+    data.links.forEach(link => {
+        const source = nodeMap.get(link.source);
+        const target = nodeMap.get(link.target);
+        
+        const path = linkGroup.append("path")
+            .attr("class", "link")
+            .attr("d", () => {
+                const sx = source.x;
+                const sy = source.y + nodeHeight / 2;
+                const tx = target.x;
+                const ty = target.y - nodeHeight / 2;
+                const my = (sy + ty) / 2;
+                
+                return `M ${sx} ${sy} C ${sx} ${my}, ${tx} ${my}, ${tx} ${ty}`;
+            });
+
+        // Add label background
+        const labelX = (source.x + target.x) / 2;
+        const labelY = (source.y + nodeHeight / 2 + target.y - nodeHeight / 2) / 2;
+        
+        linkGroup.append("rect")
+            .attr("class", "link-label-bg")
+            .attr("x", labelX - 40)
+            .attr("y", labelY - 10)
+            .attr("width", 80)
+            .attr("height", 20)
+            .attr("rx", 3);
+        
+        linkGroup.append("text")
+            .attr("class", "link-label")
+            .attr("x", labelX)
+            .attr("y", labelY + 4)
+            .attr("text-anchor", "middle")
+            .text(link.label);
+    });
+
+    // Create nodes
+    const node = svg.append("g")
+        .selectAll("g")
+        .data(Array.from(nodeMap.values()))
+        .join("g")
+        .attr("class", "node")
+        .attr("transform", d => `translate(${d.x - nodeWidth/2}, ${d.y - nodeHeight/2})`);
+
+    node.append("rect")
+        .attr("width", nodeWidth)
+        .attr("height", nodeHeight)
+        .attr("fill", d => colorScale(d.group));
+
+    node.append("text")
+        .attr("x", nodeWidth / 2)
+        .attr("y", nodeHeight / 2 - 5)
+        .text(d => d.name);
+
+    node.append("text")
+        .attr("class", "subtitle")
+        .attr("x", nodeWidth / 2)
+        .attr("y", nodeHeight / 2 + 12)
+        .text(d => d.group);
+
+    // Legend
+    const legend = svg.append("g")
+        .attr("class", "legend")
+        .attr("transform", `translate(20, 20)`);
+
+    const groups = [...new Set(data.nodes.map(n => n.group))];
+    
+    groups.forEach((group, i) => {
+        const legendRow = legend.append("g")
+            .attr("transform", `translate(0, ${i * 25})`);
+        
+        legendRow.append("rect")
+            .attr("width", 15)
+            .attr("height", 15)
+            .attr("fill", colorScale(group));
+        
+        legendRow.append("text")
+            .attr("x", 20)
+            .attr("y", 12)
+            .text(group)
+            .style("font-size", "12px")
+            .style("fill", "#333");
+    });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

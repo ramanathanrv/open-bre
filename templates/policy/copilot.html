@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Credit Policy Copilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  >
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="{{ url_for('static', filename='js/policyTree.js') }}"></script>
+
+  <style>
+    body { height: 100vh; overflow: hidden; }
+    #chat-window { height: 70vh; overflow-y: auto; }
+    #policy-view, #diff-view { height: 80vh; overflow-y: auto; }
+    .chat-bubble { max-width: 80%; padding: .5rem .75rem; border-radius: .5rem; }
+    .chat-user { background-color: #0d6efd; color: white; align-self: flex-end; }
+    .chat-system { background-color: #f1f1f1; color: #333; align-self: flex-start; }
+  </style>
+  <style>
+    html, body {
+      height: 100%;
+      overflow: hidden; /* prevent page scroll */
+    }
+  
+    .container-fluid.h-100 {
+      height: 100vh;
+      overflow: hidden;
+    }
+  
+    .row.h-100 {
+      height: 100%;
+    }
+  
+    /* Left panel with tabs */
+    .col-lg-4 {
+      height: 100%;
+      overflow: hidden;
+    }
+  
+    /* Tab content fills available height */
+    .tab-content {
+      flex-grow: 1;
+      overflow: hidden;
+    }
+  
+    /* D3 tree pane */
+    #tree-pane {
+      position: relative;
+      height: 100%;
+      overflow: hidden; /* this keeps the SVG contained */
+    }
+  
+    /* SVG should never exceed its container */
+    #policy-tree {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+    }
+  
+    /* Optional: allow pan/zoom but still stay bounded */
+    #policy-tree g {
+      transform-origin: center center;
+    }
+  
+    /* JSON code view should scroll, not the whole pane */
+    #policy-json {
+      height: 100%;
+      overflow: auto;
+      font-size: 0.9rem;
+    }
+  </style>
+  
+</head>
+<body class="p-3 bg-light">
+  <div class="container-fluid h-100">
+    <div class="row h-100">
+      <!-- LEFT PANEL: Policy View Tabs -->
+      <div class="col-lg-4 border-end d-flex flex-column">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h5 class="m-0">Policy</h5>
+          <ul class="nav nav-tabs border-0">
+            <li class="nav-item">
+              <button class="nav-link active" id="code-tab" data-bs-toggle="tab" data-bs-target="#code-pane" type="button" title="Code View">
+                <i class="bi bi-code-slash"></i>
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tree-tab" data-bs-toggle="tab" data-bs-target="#tree-pane" type="button" title="Tree View">
+                <i class="bi bi-diagram-3"></i>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <div class="tab-content flex-grow-1">
+          <!-- JSON Code View -->
+          <div class="tab-pane fade show active h-100" id="code-pane">
+            <pre id="policy-json" class="bg-light p-3 rounded h-100 overflow-auto border">{{ policyJson | safe }}</pre>
+          </div>
+
+          <!-- D3 Tree View -->
+          <div class="tab-pane fade h-100" id="tree-pane">
+              <!-- Zoom Controls -->
+              <div class="zoom-controls position-absolute top-0 end-0 p-2">
+                <div class="btn-group btn-group-sm">
+                  <button id="zoom-in" class="btn btn-outline-secondary" title="Zoom In">
+                    <i class="bi bi-zoom-in"></i>
+                  </button>
+                  <button id="zoom-out" class="btn btn-outline-secondary" title="Zoom Out">
+                    <i class="bi bi-zoom-out"></i>
+                  </button>
+                  <button id="zoom-reset" class="btn btn-outline-secondary" title="Reset View">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                  </button>
+                </div>
+              </div>            
+            <svg id="policy-tree" width="100%" height="100%" class="border rounded bg-white"></svg>
+          </div>
+        </div>
+
+        <button id="create-btn" class="btn btn-primary">Create Policy</button>
+
+      </div>
+
+      <!-- Center: Chat -->
+      <div class="col-lg-4 d-flex flex-column">
+        <h5>Copilot Chat</h5>
+        <div id="chat-window" class="bg-white border rounded p-3 d-flex flex-column mb-2"></div>
+        <div class="input-group">
+          <input type="text" id="chat-input" class="form-control" placeholder="Ask the copilot...">
+          <button id="send-btn" class="btn btn-primary">Send</button>
+        </div>
+      </div>
+
+      <!-- Right: Diff / Preview -->
+      <div class="col-lg-4 border-start d-flex flex-column">
+        <h5>Preview / Diff</h5>
+        <div id="diff-view" class="bg-white rounded p-3 flex-grow-1">
+          <p><strong>Summary:</strong> <span id="diff-summary">No changes yet.</span></p>
+          <ul id="diff-list" class="small"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js">
+  </script>
+  <script>
+    const chatWindow = document.getElementById('chat-window');
+    const chatInput  = document.getElementById('chat-input');
+    const sendBtn    = document.getElementById('send-btn');
+    const diffSummary= document.getElementById('diff-summary');
+    const diffList   = document.getElementById('diff-list');
+
+    function appendMessage(sender, text) {
+      const div = document.createElement('div');
+      div.classList.add('d-flex', 'mb-2');
+      const bubble = document.createElement('div');
+      bubble.classList.add('chat-bubble', sender === 'user' ? 'chat-user' : 'chat-system');
+      bubble.textContent = text;
+      div.appendChild(bubble);
+      chatWindow.appendChild(div);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    async function simulateCopilotReply(userText) {
+      const currentPolicy = JSON.parse(document.getElementById('policy-json').textContent);
+
+      const response = await fetch('/api/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userText,
+          policy: currentPolicy
+        })
+      });
+
+      const result = await response.json();
+      appendMessage('system', result.reply);
+
+      diffSummary.textContent = result.diff_summary;
+      diffList.innerHTML = '';
+
+      result.diff.forEach(change => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <code>${change.path}</code>:
+          <span class="text-danger">${change.old}</span> →
+          <span class="text-success">${change.new}</span>
+        `;
+        diffList.appendChild(li);
+      });
+
+      // update the policy view
+      document.getElementById('policy-json').textContent = JSON.stringify(result.updated_policy, null, 2);
+      refreshPolicyTree();
+    }
+    
+    function handleSend() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+      appendMessage('user', text);
+      chatInput.value = '';
+      simulateCopilotReply(text);
+    }
+
+    sendBtn.addEventListener('click', handleSend);
+    chatInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleSend();
+    });
+
+    document.getElementById('accept-btn').addEventListener('click', () => {
+      appendMessage('system', 'Change accepted and policy updated.');
+      diffSummary.textContent = 'No pending changes.';
+      diffList.innerHTML = '';
+    });
+
+    document.getElementById('reject-btn').addEventListener('click', () => {
+      appendMessage('system', 'Change rejected.');
+      diffSummary.textContent = 'No changes applied.';
+      diffList.innerHTML = '';
+    });
+  </script>
+  <script>
+    async function refreshPolicyTree() {
+      try {
+        // Get the raw JSON text from the hidden/pre element
+        const policyText = document.getElementById('policy-json').textContent.trim();
+        const policyJson = JSON.parse(policyText);
+    
+        // Send to Flask endpoint for conversion to D3 format
+        const response = await fetch('/api/toD3', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ policy: policyJson })
+        });
+    
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+    
+        // Parse JSON result
+        const d3Data = await response.json();
+    
+        // Render the D3 graph into the SVG with id="policy-tree"
+        renderPolicyGraph(d3Data, 'policy-tree', {
+          rootNode: 'employment_type_check',
+          width: 1200,
+          height: 1000
+        });
+      } catch (err) {
+        console.error("Error rendering policy tree:", err);
+      }
+    }
+
+    document.getElementById('tree-tab').addEventListener('shown.bs.tab', async () => {
+      refreshPolicyTree();
+    });
+  </script>
+  
+</body>
+</html>
